@@ -8,7 +8,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.regex.Pattern;
 
 /**
- * Regras de transporte e formato do protocolo v2.4 (compartilhadas por cliente e servidor).
+ * Regras de transporte e formato do protocolo v2.6 (compartilhadas por cliente e servidor).
  *
  *  - TCP, UTF-8
  *  - 1 mensagem = 1 objeto JSON em linha unica, terminado por '\n'
@@ -18,7 +18,7 @@ public final class Protocolo {
 
     private Protocolo() { }
 
-    public static final String VERSAO = "2.4";
+    public static final String VERSAO = "2.6";
     public static final int TAMANHO_MAXIMO = 8192;
 
     // Regex do Dicionario de Campos
@@ -29,6 +29,16 @@ public final class Protocolo {
     public static final Pattern TOKEN      = Pattern.compile("^[a-f0-9]{64}$");
     public static final Pattern ROLE       = Pattern.compile("^(user|admin)$");
     public static final Pattern STATUS     = Pattern.compile("^[0-9]{3}$");
+    public static final Pattern ID           = Pattern.compile("^[0-9]{1,10}$");          // room_id, reservation_id
+    public static final Pattern NOME_SALA    = Pattern.compile("^[A-Za-z0-9 -]{1,30}$");  // name
+    public static final Pattern CAPACIDADE   = Pattern.compile("^[1-9][0-9]{0,3}$");      // capacity, participants, min_capacity
+    public static final Pattern LOCAL        = Pattern.compile("^[A-Za-z0-9 ,.-]{1,60}$"); // location
+    public static final Pattern ROOM_STATUS  = Pattern.compile("^(active|inactive)$");
+    public static final Pattern DATA         = Pattern.compile("^[0-9]{4}-[0-9]{2}-[0-9]{2}$");
+    public static final Pattern HORA         = Pattern.compile("^([01][0-9]|2[0-3]):[0-5][0-9]$");
+    public static final Pattern ASSUNTO      = Pattern.compile("^[A-Za-z0-9 ,.-]{1,60}$"); // topic
+    public static final Pattern SCOPE        = Pattern.compile("^(mine|all)$");
+    public static final Pattern AVAILABLE    = Pattern.compile("^(true|false)$");
     public static final Pattern CREATED_AT = Pattern.compile(
             "^[0-9]{4}-[0-9]{2}-[0-9]{2} ([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]$");
 

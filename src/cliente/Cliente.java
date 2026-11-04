@@ -79,10 +79,18 @@ public final class Cliente {
                 case "4": atualizar();       break;
                 case "5": apagarCadastro();  break;
                 case "6": logout();          break;
+                case "7": listarSalas();     break;
+                case "8": reservarSala();    break;
+                case "9": minhasReservas();  break;
                 case "10": adminListar();    break;
                 case "11": adminVer();       break;
                 case "12": adminAlterar();   break;
                 case "13": adminRemover();   break;
+                case "20": adminCriarSala();          break;
+                case "21": adminVerSalasEReservas();  break;
+                case "22": adminVerSala();            break;
+                case "23": adminAlterarSala();        break;
+                case "24": adminRemoverSala();        break;
                 case "0": sair();            return;
                 default: System.out.println("Opcao invalida.");
             }
@@ -103,6 +111,9 @@ public final class Cliente {
         System.out.println(" 4 - Atualizar meu cadastro       (update_user)");
         System.out.println(" 5 - Apagar meu cadastro          (delete_user)");
         System.out.println(" 6 - Logout                       (logout)");
+        System.out.println(" 7 - Listar salas                 (list_rooms)");
+        System.out.println(" 8 - Reservar uma sala            (create_reservation)");
+        System.out.println(" 9 - Minhas reservas              (list_reservations)");
         System.out.println(" 0 - Sair");
         if ("admin".equals(role)) {
             System.out.println("------------------------ ADMINISTRADOR -----------------------");
@@ -110,6 +121,11 @@ public final class Cliente {
             System.out.println(" 11 - Ver um usuario              (admin_read_user)");
             System.out.println(" 12 - Alterar um usuario          (admin_update_user)");
             System.out.println(" 13 - Remover um usuario          (admin_delete_user)");
+            System.out.println(" 20 - Cadastrar sala              (create_room)");
+            System.out.println(" 21 - Ver todas as salas e reservas (list_rooms + list_reservations)");
+            System.out.println(" 22 - Ver uma sala e sua agenda   (read_room + list_reservations)");
+            System.out.println(" 23 - Alterar sala                (update_room)");
+            System.out.println(" 24 - Remover sala                (delete_room)");
         }
         System.out.println("==============================================================");
     }
@@ -264,6 +280,289 @@ public final class Cliente {
         req.put("token", token);
         req.put("target_user", alvo);
         executar(req);
+    }
+
+    // =====================================================================
+    // SALAS E RESERVAS (qualquer usuario logado)
+    // =====================================================================
+
+    private void listarSalas() {
+        System.out.println("\n--- LISTAR SALAS (list_rooms) ---");
+        if (!exigirLogin()) return;
+        System.out.println("Filtros opcionais (Enter = sem filtro).");
+        String data = ler("Data para ver se esta livre (AAAA-MM-DD): ").trim();
+        Map<String, Object> req = novaRequisicao("list_rooms");
+        req.put("token", token);
+        if (!data.isEmpty()) {
+            String ini = ler("Hora de inicio (HH:MM): ").trim();
+            String fim = ler("Hora de fim    (HH:MM): ").trim();
+            conferirLocal("date", data, Protocolo.DATA, false);
+            conferirLocal("start_time", ini, Protocolo.HORA, false);
+            conferirLocal("end_time", fim, Protocolo.HORA, false);
+            req.put("date", data);
+            req.put("start_time", ini);
+            req.put("end_time", fim);
+        }
+        String minimo = ler("Capacidade minima: ").trim();
+        if (!minimo.isEmpty()) {
+            conferirLocal("min_capacity", minimo, Protocolo.CAPACIDADE, false);
+            req.put("min_capacity", minimo);
+        }
+        Map<String, Object> r = executar(req);
+        if (sucesso(r)) mostrarSalas(lista(r, "rooms"), null);
+    }
+
+    private void reservarSala() {
+        System.out.println("\n--- RESERVAR SALA (create_reservation) ---");
+        if (!exigirLogin()) return;
+        String sala = ler("Numero da sala (room_id): ").trim();
+        String data = ler("Data (AAAA-MM-DD)       : ").trim();
+        String ini = ler("Hora de inicio (HH:MM)  : ").trim();
+        String fim = ler("Hora de fim    (HH:MM)  : ").trim();
+        String assunto = ler("Assunto (sem acentos)   : ");
+        String part = ler("Participantes           : ").trim();
+        conferirLocal("room_id", sala, Protocolo.ID, false);
+        conferirLocal("date", data, Protocolo.DATA, false);
+        conferirLocal("start_time", ini, Protocolo.HORA, false);
+        conferirLocal("end_time", fim, Protocolo.HORA, false);
+        conferirLocal("topic", assunto, Protocolo.ASSUNTO, false);
+        conferirLocal("participants", part, Protocolo.CAPACIDADE, false);
+        Map<String, Object> req = novaRequisicao("create_reservation");
+        req.put("token", token);
+        req.put("room_id", sala);
+        req.put("date", data);
+        req.put("start_time", ini);
+        req.put("end_time", fim);
+        req.put("topic", assunto);
+        req.put("participants", part);
+        Map<String, Object> r = executar(req);
+        if (sucesso(r)) System.out.println("    Numero da reserva: " + texto(r, "reservation_id"));
+    }
+
+    private void minhasReservas() {
+        System.out.println("\n--- MINHAS RESERVAS (list_reservations, scope mine) ---");
+        if (!exigirLogin()) return;
+        Map<String, Object> req = novaRequisicao("list_reservations");
+        req.put("token", token);
+        req.put("scope", "mine");
+        Map<String, Object> r = executar(req);
+        if (sucesso(r)) mostrarReservas(lista(r, "reservations"), "    ");
+    }
+
+    // =====================================================================
+    // SALAS - ADMINISTRADOR
+    // =====================================================================
+
+    private void adminCriarSala() {
+        System.out.println("\n--- CADASTRAR SALA (create_room) ---");
+        if (!exigirAdmin()) return;
+        System.out.println("Sem acentos. Nome: letras, numeros, espaco e hifen (1 a 30). Local: tambem virgula e ponto (1 a 60).");
+        String nome = ler("Nome da sala  : ");
+        String cap = ler("Capacidade    : ").trim();
+        String local = ler("Localizacao   : ");
+        String rec = ler("Recursos (separados por virgula, Enter ou - = nenhum): ");
+        conferirLocal("name", nome, Protocolo.NOME_SALA, false);
+        conferirLocal("capacity", cap, Protocolo.CAPACIDADE, false);
+        conferirLocal("location", local, Protocolo.LOCAL, false);
+        Map<String, Object> req = novaRequisicao("create_room");
+        req.put("token", token);
+        req.put("name", nome);
+        req.put("capacity", cap);
+        req.put("location", local);
+        req.put("resources", separarRecursos(rec));
+        Map<String, Object> r = executar(req);
+        if (sucesso(r)) System.out.println("    Numero da sala criada (room_id): " + texto(r, "room_id"));
+    }
+
+    /** Item e/m da EP-2: todas as salas com status e, para cada uma, quem reservou e quando. */
+    private void adminVerSalasEReservas() {
+        System.out.println("\n--- TODAS AS SALAS E RESERVAS (list_rooms + list_reservations scope all) ---");
+        if (!exigirAdmin()) return;
+        Map<String, Object> req = novaRequisicao("list_rooms");
+        req.put("token", token);
+        Map<String, Object> salas = executar(req);
+        if (!sucesso(salas)) return;
+        Map<String, Object> req2 = novaRequisicao("list_reservations");
+        req2.put("token", token);
+        req2.put("scope", "all");
+        Map<String, Object> reservas = executar(req2);
+        if (!sucesso(reservas)) return;
+        mostrarSalas(lista(salas, "rooms"), lista(reservas, "reservations"));
+    }
+
+    private void adminVerSala() {
+        System.out.println("\n--- VER UMA SALA E SUA AGENDA (read_room + list_reservations) ---");
+        if (!exigirAdmin()) return;
+        String sala = ler("Numero da sala (room_id): ").trim();
+        conferirLocal("room_id", sala, Protocolo.ID, false);
+        Map<String, Object> req = novaRequisicao("read_room");
+        req.put("token", token);
+        req.put("room_id", sala);
+        Map<String, Object> r = executar(req);
+        if (!sucesso(r)) return;
+        Map<String, Object> req2 = novaRequisicao("list_reservations");
+        req2.put("token", token);
+        req2.put("scope", "all");
+        req2.put("room_id", sala);
+        Map<String, Object> reservas = executar(req2);
+        if (!sucesso(reservas)) return;
+        List<Object> uma = new ArrayList<>();
+        uma.add(r);
+        mostrarSalas(uma, lista(reservas, "reservations"));
+    }
+
+    private void adminAlterarSala() {
+        System.out.println("\n--- ALTERAR SALA (update_room) ---");
+        if (!exigirAdmin()) return;
+        String sala = ler("Numero da sala (room_id): ").trim();
+        conferirLocal("room_id", sala, Protocolo.ID, false);
+        // Le a sala antes: 'resources' e sempre enviado como lista completa, entao precisamos da lista atual
+        Map<String, Object> leitura = novaRequisicao("read_room");
+        leitura.put("token", token);
+        leitura.put("room_id", sala);
+        Map<String, Object> atual = executar(leitura);
+        if (!sucesso(atual)) return;
+        List<Object> uma = new ArrayList<>();
+        uma.add(atual);
+        mostrarSalas(uma, null);
+
+        System.out.println("Deixe em branco (so Enter) o que NAO quiser alterar.");
+        String nome = ler("Novo nome        : ");
+        String cap = ler("Nova capacidade  : ").trim();
+        String local = ler("Nova localizacao : ");
+        String rec = ler("Novos recursos (separados por virgula, '-' = nenhum): ");
+        String st = ler("Novo status (active = livre, inactive = indisponivel): ").trim().toLowerCase();
+        if (st.equals("livre")) st = "active";
+        if (st.equals("indisponivel")) st = "inactive";
+        conferirLocal("name", nome, Protocolo.NOME_SALA, true);
+        conferirLocal("capacity", cap, Protocolo.CAPACIDADE, true);
+        conferirLocal("location", local, Protocolo.LOCAL, true);
+        conferirLocal("room_status", st, Protocolo.ROOM_STATUS, true);
+
+        List<Object> recursos;
+        if (rec.trim().isEmpty()) {
+            recursos = lista(atual, "resources"); // mantem os atuais
+        } else if (rec.trim().equals("-")) {
+            recursos = new ArrayList<>();
+        } else {
+            recursos = separarRecursos(rec);
+        }
+        Map<String, Object> req = novaRequisicao("update_room");
+        req.put("token", token);
+        req.put("room_id", sala);
+        req.put("name", nome);
+        req.put("capacity", cap);
+        req.put("location", local);
+        req.put("resources", recursos);
+        req.put("room_status", st);
+        executar(req);
+    }
+
+    private void adminRemoverSala() {
+        System.out.println("\n--- REMOVER SALA (delete_room) ---");
+        if (!exigirAdmin()) return;
+        String sala = ler("Numero da sala (room_id): ").trim();
+        String certeza = ler("Tem certeza que deseja remover a sala " + sala + "? (s/n): ").trim().toLowerCase();
+        if (!certeza.equals("s")) {
+            System.out.println("Cancelado. Nada foi enviado.");
+            return;
+        }
+        conferirLocal("room_id", sala, Protocolo.ID, false);
+        Map<String, Object> req = novaRequisicao("delete_room");
+        req.put("token", token);
+        req.put("room_id", sala);
+        Map<String, Object> r = executar(req);
+        if (r != null && "409".equals(texto(r, "status"))) {
+            Log.print("[INFO]", "A sala tem reservas futuras. Para tira-la de uso, altere o status para 'inactive' (opcao 23).");
+        }
+    }
+
+    // ---------------------------------------------------------------- exibicao de salas e reservas
+
+    /**
+     * Mostra as salas. Se 'reservas' nao for null, mostra embaixo de cada sala quem reservou e quando.
+     */
+    private void mostrarSalas(List<Object> salas, List<Object> reservas) {
+        if (salas.isEmpty()) {
+            System.out.println("    Nenhuma sala cadastrada.");
+            return;
+        }
+        for (Object o : salas) {
+            if (!(o instanceof Map)) continue;
+            Map<?, ?> s = (Map<?, ?>) o;
+            String st = String.valueOf(s.get("room_status"));
+            String stTexto = "active".equals(st) ? "livre (active)" : "inactive".equals(st) ? "indisponivel (inactive)" : st;
+            System.out.println("    ----------------------------------------------------------");
+            System.out.println("    Sala " + s.get("room_id") + ": " + s.get("name"));
+            System.out.println("      Capacidade : " + s.get("capacity") + " lugares");
+            System.out.println("      Local      : " + s.get("location"));
+            System.out.println("      Recursos   : " + juntar(s.get("resources")));
+            System.out.println("      Status     : " + stTexto);
+            if (s.containsKey("available")) {
+                System.out.println("      No horario pedido: " + ("true".equals(s.get("available")) ? "LIVRE" : "OCUPADA/INDISPONIVEL"));
+            }
+            if (reservas != null) {
+                List<Object> daSala = new ArrayList<>();
+                for (Object r : reservas) {
+                    if (r instanceof Map && String.valueOf(((Map<?, ?>) r).get("room_id")).equals(String.valueOf(s.get("room_id")))) {
+                        daSala.add(r);
+                    }
+                }
+                if (daSala.isEmpty()) {
+                    System.out.println("      Reservas   : nenhuma");
+                } else {
+                    System.out.println("      Reservas   :");
+                    mostrarReservas(daSala, "        ");
+                }
+            }
+        }
+        System.out.println("    ----------------------------------------------------------");
+    }
+
+    private void mostrarReservas(List<Object> reservas, String recuo) {
+        if (reservas.isEmpty()) {
+            System.out.println(recuo + "Nenhuma reserva.");
+            return;
+        }
+        System.out.println(String.format("%s%-4s %-20s %-12s %-10s %-13s %-5s %s", recuo,
+                "#", "SALA", "QUEM", "DATA", "HORARIO", "PESS.", "ASSUNTO"));
+        for (Object o : reservas) {
+            if (!(o instanceof Map)) continue;
+            Map<?, ?> r = (Map<?, ?>) o;
+            System.out.println(String.format("%s%-4s %-20s %-12s %-10s %-13s %-5s %s", recuo,
+                    r.get("reservation_id"), r.get("room_id") + " " + r.get("name"), r.get("user"), r.get("date"),
+                    r.get("start_time") + "-" + r.get("end_time"), r.get("participants"), r.get("topic")));
+        }
+    }
+
+    private static String juntar(Object lista) {
+        if (!(lista instanceof List) || ((List<?>) lista).isEmpty()) return "nenhum";
+        List<String> partes = new ArrayList<>();
+        for (Object o : (List<?>) lista) partes.add(String.valueOf(o));
+        return String.join(", ", partes);
+    }
+
+    /** "projetor, tv" -> ["projetor", "tv"]; vazio ou "-" -> [] (nenhum recurso). */
+    private static List<Object> separarRecursos(String texto) {
+        List<Object> lista = new ArrayList<>();
+        if (texto.trim().equals("-")) return lista;
+        for (String parte : texto.split(",")) {
+            if (!parte.trim().isEmpty()) lista.add(parte.trim());
+        }
+        return lista;
+    }
+
+    private static boolean sucesso(Map<String, Object> r) {
+        if (r == null) return false;
+        String st = texto(r, "status");
+        return st != null && st.startsWith("2");
+    }
+
+    private static List<Object> lista(Map<String, Object> r, String chave) {
+        Object v = r.get(chave);
+        List<Object> l = new ArrayList<>();
+        if (v instanceof List) l.addAll((List<?>) v);
+        return l;
     }
 
     private void sair() {
@@ -439,7 +738,9 @@ public final class Cliente {
 
         // 403 "Permissao insuficiente" numa operacao de admin: o servidor diz que este token nao e de admin
         // (ex.: o proprio role foi rebaixado). A sessao continua; so as opcoes de admin somem do menu.
-        if (status.equals("403") && op.startsWith("admin_") && usouMeuToken
+        boolean opDeAdmin = op.startsWith("admin_") || op.equals("create_room") || op.equals("update_room")
+                || op.equals("delete_room");
+        if (status.equals("403") && opDeAdmin && usouMeuToken
                 && "Permissao insuficiente".equals(texto(r, "message")) && "admin".equals(role)) {
             role = "user";
             Log.print("[INFO]", "O servidor nao reconhece este login como admin. As opcoes de admin foram escondidas.");
@@ -486,8 +787,33 @@ public final class Cliente {
         if ("register".equals(opEnviada) && "200".equals(status)) {
             avisos.add("cadastro com sucesso deveria responder status 201");
         }
-        if (opEnviada != null && !"register".equals(opEnviada) && "201".equals(status)) {
+        boolean cria = "register".equals(opEnviada) || "create_room".equals(opEnviada)
+                || "create_reservation".equals(opEnviada);
+        if (opEnviada != null && cria && "200".equals(status)) {
+            avisos.add("'" + opEnviada + "' com sucesso deveria responder status 201");
+        }
+        if (opEnviada != null && !cria && "201".equals(status)) {
             avisos.add("'" + opEnviada + "' com sucesso deveria responder status 200");
+        }
+        if ("201".equals(status) && "create_room".equals(opEnviada) && !Protocolo.casa(Protocolo.ID, texto(r, "room_id"))) {
+            avisos.add("falta 'room_id' (string numerica)");
+        }
+        if ("201".equals(status) && "create_reservation".equals(opEnviada)
+                && !Protocolo.casa(Protocolo.ID, texto(r, "reservation_id"))) {
+            avisos.add("falta 'reservation_id' (string numerica)");
+        }
+        if ("200".equals(status) && "list_rooms".equals(opEnviada)) {
+            conferirLista(r, "rooms", new String[] {"room_id", "name", "capacity", "location", "room_status"}, avisos);
+        }
+        if ("200".equals(status) && "list_reservations".equals(opEnviada)) {
+            conferirLista(r, "reservations", new String[] {"reservation_id", "room_id", "name", "user", "date",
+                "start_time", "end_time", "topic", "participants"}, avisos);
+        }
+        if ("200".equals(status) && "read_room".equals(opEnviada)) {
+            for (String campo : new String[] {"room_id", "name", "capacity", "location", "room_status"}) {
+                if (texto(r, campo) == null) avisos.add("falta '" + campo + "'");
+            }
+            if (!(r.get("resources") instanceof List)) avisos.add("falta o array 'resources'");
         }
         if ("200".equals(status) && "login".equals(opEnviada)) {
             if (!Protocolo.casa(Protocolo.TOKEN, texto(r, "token"))) {
@@ -611,6 +937,31 @@ public final class Cliente {
         Map<String, Object> req = new LinkedHashMap<>(); // 'op' sempre como primeira chave
         req.put("op", op);
         return req;
+    }
+
+    /** Confere 'count' e os campos de cada item de uma listagem. */
+    private static void conferirLista(Map<String, Object> r, String chave, String[] campos, List<String> avisos) {
+        Object lista = r.get(chave);
+        if (!(lista instanceof List)) {
+            avisos.add("falta o array '" + chave + "'");
+            return;
+        }
+        List<?> itens = (List<?>) lista;
+        if (!String.valueOf(itens.size()).equals(texto(r, "count"))) {
+            avisos.add("'count' (" + texto(r, "count") + ") diferente da quantidade de itens em '" + chave + "' (" + itens.size() + ")");
+        }
+        for (Object item : itens) {
+            if (!(item instanceof Map)) {
+                avisos.add("item de '" + chave + "' nao e objeto");
+                return;
+            }
+            for (String campo : campos) {
+                if (!(((Map<?, ?>) item).get(campo) instanceof String)) {
+                    avisos.add("item de '" + chave + "' sem '" + campo + "' (string)");
+                    return;
+                }
+            }
+        }
     }
 
     /** Mostra a resposta do admin_list_users como tabela. */

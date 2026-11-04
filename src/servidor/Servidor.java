@@ -32,7 +32,10 @@ public final class Servidor {
         System.out.println("==============================================================");
 
         BancoDados banco = new BancoDados();
-        banco.criarUsuario("admin@email.com", "admin", "admin123", "admin");
+        // Regra 3.15 (v2.6): ao iniciar sem nenhum admin, cria o admin inicial (igual em todos os servidores)
+        if (banco.contarAdmins() == 0) {
+            banco.criarUsuario("admin@admin.com", "admin", "admin", "admin");
+        }
 
         ServerSocket servidor = null;
         int porta = 0;
@@ -48,7 +51,7 @@ public final class Servidor {
 
         Log.print(TAG, "Servidor escutando na porta " + porta);
         mostrarIps(porta);
-        Log.print(TAG, "Administrador padrao: email admin@email.com / senha admin123");
+        Log.print(TAG, "Admin inicial (regra 3.15): email admin@admin.com / senha admin");
         mostrarAjuda();
         iniciarConsole(teclado);
 
