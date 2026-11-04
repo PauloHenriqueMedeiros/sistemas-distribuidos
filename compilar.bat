@@ -11,7 +11,7 @@ if errorlevel 1 (
   exit /b 1
 )
 del fontes.txt
-jar cfe Servidor.jar servidor.Servidor -C bin comum -C bin servidor
-jar cfe Cliente.jar cliente.Cliente -C bin comum -C bin cliente
+jar cfe Servidor.jar servidor.ServidorGUI -C bin comum -C bin servidor
+jar cfe Cliente.jar cliente.ClienteGUI -C bin comum -C bin cliente
 echo Pronto: Servidor.jar e Cliente.jar gerados.
 pause

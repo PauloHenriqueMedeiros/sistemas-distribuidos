@@ -10,7 +10,9 @@ import java.net.InetAddress;
 import java.net.NetworkInterface;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.List;
 
 /**
  * SERVIDOR - Sistema de Reserva de Salas (EP-1)
@@ -31,11 +33,7 @@ public final class Servidor {
         System.out.println("   SERVIDOR - Sistema de Reserva de Salas (protocolo v" + Protocolo.VERSAO + ")");
         System.out.println("==============================================================");
 
-        BancoDados banco = new BancoDados();
-        // Regra 3.15 (v2.6): ao iniciar sem nenhum admin, cria o admin inicial (igual em todos os servidores)
-        if (banco.contarAdmins() == 0) {
-            banco.criarUsuario("admin@admin.com", "admin", "admin", "admin");
-        }
+        BancoDados banco = criarBanco();
 
         ServerSocket servidor = null;
         int porta = 0;
@@ -55,17 +53,51 @@ public final class Servidor {
         mostrarAjuda();
         iniciarConsole(teclado);
 
+        atender(servidor, banco);
+    }
+
+    /** Banco novo com o admin inicial (regra 3.15, v2.6): criado quando nao ha nenhum admin. */
+    public static BancoDados criarBanco() {
+        BancoDados banco = new BancoDados();
+        if (banco.contarAdmins() == 0) {
+            banco.criarUsuario("admin@admin.com", "admin", "admin", "admin");
+        }
+        return banco;
+    }
+
+    /** Aceita clientes para sempre, uma thread por conexao (regra 1.1). Termina quando o socket e fechado. */
+    public static void atender(ServerSocket servidor, BancoDados banco) {
         int contador = 0;
-        while (true) {
+        while (!servidor.isClosed()) {
             try {
                 Socket cliente = servidor.accept();
                 contador++;
                 Thread t = new Thread(new ConexaoCliente(cliente, banco, contador), "cliente-" + contador);
+                t.setDaemon(true);
                 t.start();
             } catch (IOException e) {
+                if (servidor.isClosed()) return;
                 Log.print(TAG, "ERRO ao aceitar conexao: " + e.getMessage());
             }
         }
+    }
+
+    /** IPv4 desta maquina (fora o 127.0.0.1), com o nome da placa de rede. */
+    public static List<String> ipsDaMaquina() {
+        List<String> ips = new ArrayList<>();
+        try {
+            for (NetworkInterface ni : Collections.list(NetworkInterface.getNetworkInterfaces())) {
+                if (!ni.isUp() || ni.isLoopback()) continue;
+                for (InetAddress end : Collections.list(ni.getInetAddresses())) {
+                    if (end instanceof Inet4Address) {
+                        ips.add(end.getHostAddress() + "   (" + ni.getDisplayName() + ")");
+                    }
+                }
+            }
+        } catch (Exception e) {
+            // so informativo
+        }
+        return ips;
     }
 
     private static int lerPorta(BufferedReader teclado) {
@@ -94,18 +126,8 @@ public final class Servidor {
 
     /** Mostra os IPs desta maquina, para o colega digitar no cliente. */
     private static void mostrarIps(int porta) {
-        try {
-            for (NetworkInterface ni : Collections.list(NetworkInterface.getNetworkInterfaces())) {
-                if (!ni.isUp() || ni.isLoopback()) continue;
-                for (InetAddress end : Collections.list(ni.getInetAddresses())) {
-                    if (end instanceof Inet4Address) {
-                        Log.print(TAG, "IP para os clientes: " + end.getHostAddress() + "  porta " + porta
-                                + "   (" + ni.getDisplayName() + ")");
-                    }
-                }
-            }
-        } catch (Exception e) {
-            // so informativo
+        for (String ip : ipsDaMaquina()) {
+            Log.print(TAG, "IP para os clientes: " + ip + "  porta " + porta);
         }
         Log.print(TAG, "Na mesma maquina use 127.0.0.1  porta " + porta);
     }

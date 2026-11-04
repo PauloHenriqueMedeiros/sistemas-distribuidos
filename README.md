@@ -10,58 +10,68 @@ No testador da turma (`node scripts/testar-servidor.mjs IP PORTA`), **79 de 79 t
 ## Estrutura
 
 ```
-src/comum/     Json.java (leitor/escritor JSON), Protocolo.java (framing, regex), Log.java
-src/servidor/  Servidor.java (main), ConexaoCliente.java (thread por cliente),
+src/comum/     Json.java, Protocolo.java (framing, regex), Log.java, Visual.java (cores e componentes das janelas)
+src/servidor/  ServidorGUI.java (janela), Servidor.java (terminal), ConexaoCliente.java (thread por cliente),
                Operacoes.java (regras do protocolo), BancoDados.java (onde os dados ficam guardados)
-src/cliente/   Cliente.java (main, menu no terminal)
-Servidor.jar / Cliente.jar   prontos para rodar (Java 11 ou mais novo)
+src/cliente/   ClienteGUI.java (janela), Rede.java (conexao e envio usados pela janela), Cliente.java (terminal)
+Servidor.jar / Cliente.jar   prontos para rodar (Java 11 ou mais novo); abrem a interface grafica
 ```
 
 ## Como rodar
 
-- Servidor: `java -jar Servidor.jar` (ou `servidor.bat`) → digite a porta.
-- Cliente: `java -jar Cliente.jar` (ou `cliente.bat`) → digite o IP e a porta do servidor.
+- **Servidor:** dois cliques em `Servidor.jar` (ou `servidor.bat`). Digite a porta e clique em **Iniciar servidor**.
+- **Cliente:** dois cliques em `Cliente.jar` (ou `cliente.bat`). Digite o IP e a porta do servidor e clique em **Conectar**.
 
-Pela IDE: marque `src` como pasta de código-fonte e rode `servidor.Servidor` ou `cliente.Cliente`.
+O `servidor.bat` e o `cliente.bat` abrem a janela e deixam um terminal aberto atrás, que mostra as mesmas mensagens.
+As versões de terminal continuam disponíveis: `servidor-terminal.bat` e `cliente-terminal.bat`.
+
+Pela IDE: marque `src` como pasta de código-fonte e rode `servidor.ServidorGUI` ou `cliente.ClienteGUI`.
 Se alterar o código, rode `compilar.bat` para gerar os `.jar` de novo.
 
 Ao iniciar, o servidor cria o **admin inicial** da regra 3.15: email `admin@admin.com`, senha `admin`
-(igual em todos os servidores da turma). Depois de ligado, o único comando dele é `sair`; tudo é feito pelo cliente,
-e o log do servidor mostra cada mensagem recebida, enviada e o motivo de cada decisão.
+(igual em todos os servidores da turma).
 
-## Menu do cliente
+## Interface
 
-| Opção | Quem | Operação |
+**Servidor:** só tem o campo de porta, **Iniciar servidor** e **Encerrar servidor**. O servidor é intermediário:
+não há consultas nem cadastros por ele. A janela mostra os IPs da máquina (para o colega digitar no cliente) e o log
+de tudo o que chega, sai e é decidido, com cores: recebido em azul, resposta de sucesso em verde, resposta de erro em
+vermelho e o motivo de cada decisão em roxo.
+
+**Cliente:** tela de conexão (IP e porta), depois um menu lateral que muda conforme o login:
+
+| Menu | Quem vê | Operações |
 |---|---|---|
-| 1 Cadastrar / 2 Login | só sem login | `register` / `login` |
-| 3 Ver meu cadastro / 4 Atualizar / 5 Apagar / 6 Logout | logado | `read_user` / `update_user` / `delete_user` / `logout` |
-| 7 Listar salas | logado | `list_rooms` (filtro opcional de horário e capacidade) |
-| 8 Reservar uma sala | logado | `create_reservation` |
-| 9 Minhas reservas | logado | `list_reservations` (scope mine) |
-| 10 a 13 | admin | `admin_list_users`, `admin_read_user`, `admin_update_user`, `admin_delete_user` |
-| 20 Cadastrar sala | admin | `create_room` |
-| 21 Ver todas as salas e reservas | admin | `list_rooms` + `list_reservations` (scope all) |
-| 22 Ver uma sala e sua agenda | admin | `read_room` + `list_reservations` (scope all, room_id) |
-| 23 Alterar sala | admin | `read_room` + `update_room` |
-| 24 Remover sala | admin | `delete_room` |
+| Entrar / Criar conta | só sem login | `login` / `register` |
+| Meu cadastro | logado | `read_user`; alterar (`update_user`); apagar a conta (`delete_user`, pede a senha) |
+| Salas | logado | `list_rooms` com filtro opcional de data, horário e capacidade mínima |
+| Reservar sala | logado | `create_reservation` (a lista de salas vem do `list_rooms`) |
+| Minhas reservas | logado | `list_reservations` (scope mine) |
+| Usuarios | admin | `admin_list_users`; Ver detalhes (`admin_read_user`), Alterar (`admin_update_user`), Remover (`admin_delete_user`) |
+| Gerenciar salas | admin | salas com status (`list_rooms`) e, para a sala selecionada, quem reservou e quando (`list_reservations` scope all); Nova sala (`create_room`), Alterar (`read_room` + `update_room`), Remover (`delete_room`) |
+| Sair da conta | logado | `logout` |
 
-As opções de admin só aparecem quando o login foi de um admin. O servidor confere de verdade pela whitelist de tokens:
-quem não é admin recebe 403 "Permissao insuficiente".
+- Embaixo de tudo fica o painel **Mensagens enviadas e recebidas**, com cada JSON que sai e chega (o divisor pode ser
+  arrastado para aumentar o painel).
+- O resultado de cada ação aparece numa faixa no topo: verde para sucesso, vermelha para erro, com o status e a message
+  exatos do servidor.
+- O cliente avisa no painel quando um campo está fora do formato, mas envia mesmo assim, para o servidor mostrar o erro dele.
+- As requisições rodam fora da thread da tela, então a janela nunca congela esperando o servidor.
 
 ## Roteiro para a avaliação (EP-2)
 
-Antes: entre como `admin@admin.com` / `admin`, cadastre uma sala (20), saia (6), cadastre e entre com um usuário comum
-(1, 2), reserve a sala (8) e saia. Assim há um usuário comum e uma reserva para mostrar.
+Antes: entre como `admin@admin.com` / `admin`, cadastre uma sala (Gerenciar salas → Nova sala) e saia. Crie uma conta
+de usuário comum, entre com ela, reserve a sala (Reservar sala) e saia. Assim há um usuário comum e uma reserva para mostrar.
 
 | Item | No cliente (logado como admin) | Resposta esperada |
 |---|---|---|
-| a / i | 10 | 200 com todos os usuários |
-| b / j | 12 → usuário comum → novo nome/senha/role | 200 "Dados atualizados com sucesso" |
-| c / k | 13 → usuário comum → `s` | 200 "Usuario removido com sucesso" (as reservas dele também somem) |
-| d / l | 20 → nome, capacidade, local, recursos | 201 "Sala cadastrada com sucesso" + room_id |
-| e / m | 21 (ou 22 para uma sala) | salas com capacidade, status (livre/indisponível) e, embaixo de cada uma, quem reservou, data e horário |
-| f / n | 23 → nome, capacidade, local, recursos, status (`active` = livre, `inactive` = indisponível) | 200 "Sala atualizada com sucesso" |
-| g / o | 24 → sala sem reservas futuras → `s` | 200 "Sala removida com sucesso"; confira com 21 |
+| a / i | Usuarios | lista com todos os usuários |
+| b / j | Usuarios → selecione o usuário comum → Alterar | 200 "Dados atualizados com sucesso" |
+| c / k | Usuarios → selecione o usuário comum → Remover | 200 "Usuario removido com sucesso" (as reservas dele também somem) |
+| d / l | Gerenciar salas → Nova sala | 201 "Sala cadastrada com sucesso" + número da sala |
+| e / m | Gerenciar salas → selecione a sala | capacidade, status (Livre/Indisponivel) e, embaixo, quem reservou, data e horário |
+| f / n | Gerenciar salas → Alterar (nome, capacidade, local, recursos, status) | 200 "Sala atualizada com sucesso" |
+| g / o | Gerenciar salas → sala sem reservas futuras → Remover | 200 "Sala removida com sucesso"; ela some da tabela |
 | h | casos de erro abaixo | mensagens de erro exatas do protocolo |
 
 Erros que valem mostrar (item h): sala com nome repetido (409 "Sala ja cadastrada"), remover sala com reserva futura
