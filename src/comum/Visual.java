@@ -262,6 +262,7 @@ public final class Visual {
             public Component getTableCellRendererComponent(JTable tab, Object v, boolean sel, boolean foco, int l, int col) {
                 super.getTableCellRendererComponent(tab, v, sel, false, l, col);
                 setBorder(BorderFactory.createEmptyBorder(0, 10, 0, 10));
+                setToolTipText(v == null || String.valueOf(v).isEmpty() ? null : String.valueOf(v)); // texto inteiro
                 if (!sel) setBackground(l % 2 == 0 ? CARTAO : LINHA_ZEBRA);
                 return this;
             }

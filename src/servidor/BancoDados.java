@@ -23,7 +23,7 @@ import java.util.Set;
  *   sessoesPorToken   : HashMap        token -> Sessao       (tokens ativos, regra 3.2)
  *   tokensAdmin       : HashSet        tokens com poder de admin (whitelist, regra 3.14)
  *   tokensJaEmitidos  : HashSet        tokens ja gerados     (para nunca reutilizar, regra 3.4)
- *   salasPorId        : LinkedHashMap  room_id -> Sala
+ *   salasPorId        : LinkedHashMap  room_id -> Sala (com os slots: horarios de funcionamento, v2.8)
  *   reservasPorId     : LinkedHashMap  reservation_id -> Reserva
  *
  * Os dados existem enquanto o servidor estiver aberto; ao fechar, somem.
@@ -84,14 +84,16 @@ public final class BancoDados {
         public int capacity;
         public String location;
         public List<String> resources;
-        public String status; // "active" ou "inactive"
+        public List<String> slots;  // codigo da UTFPR: "2M1" = segunda, manha, 1a aula (regra 8.2)
+        public String status;       // "active" = livre para reservas, "inactive" = indisponivel (regra 8.6)
 
-        Sala(long id, String name, int capacity, String location, List<String> resources) {
+        Sala(long id, String name, int capacity, String location, List<String> resources, List<String> slots) {
             this.id = id;
             this.name = name;
             this.capacity = capacity;
             this.location = location;
             this.resources = new ArrayList<>(resources);
+            this.slots = new ArrayList<>(slots);
             this.status = "active";
         }
     }
@@ -283,8 +285,9 @@ public final class BancoDados {
 
     // ================================================================== salas
 
-    public synchronized Sala criarSala(String name, int capacity, String location, List<String> resources) {
-        Sala s = new Sala(proximoIdSala++, name, capacity, location, resources);
+    public synchronized Sala criarSala(String name, int capacity, String location, List<String> resources,
+                                       List<String> slots) {
+        Sala s = new Sala(proximoIdSala++, name, capacity, location, resources, slots);
         salasPorId.put(s.id, s);
         return s;
     }

@@ -1,5 +1,6 @@
 package cliente;
 
+import comum.Aulas;
 import comum.Log;
 import comum.Protocolo;
 import comum.Visual;
@@ -459,6 +460,7 @@ public final class ClienteGUI {
             m.setRowCount(0);
         }
         reservasCarregadas.clear();
+        slotsPorSala.clear();
         comboSalas.removeAllItems();
         for (JLabel l : new JLabel[] {meuUser, meuEmail, meuPerfil, meuCriado}) {
             if (l != null) l.setText("-");
@@ -689,13 +691,16 @@ public final class ClienteGUI {
     // SALAS (qualquer usuario logado)
     // =====================================================================
 
-    private final DefaultTableModel modeloSalas = modelo("N", "Nome", "Capacidade", "Local", "Recursos", "Status", "No horario");
+    private final DefaultTableModel modeloSalas = modelo("N", "Nome", "Capacidade", "Local", "Recursos", "Horarios",
+            "Status", "No horario");
     private JTable tabelaSalas;
+    /** Horarios (slots) de cada sala, da ultima listagem: usados na tela de reserva. */
+    private final Map<String, List<?>> slotsPorSala = new LinkedHashMap<>();
 
     private JComponent telaSalas() {
         JTextField data = Visual.campo(10);
-        JTextField ini = Visual.campo(6);
-        JTextField fim = Visual.campo(6);
+        JComboBox<String> ini = comboHoras(true, true);
+        JComboBox<String> fim = comboHoras(false, true);
         JTextField minimo = Visual.campo(6);
         JButton buscar = Visual.botao("Buscar", "primario");
         JButton limpar = Visual.botao("Limpar filtros", "secundario");
@@ -705,7 +710,7 @@ public final class ClienteGUI {
         GridBagConstraints c = new GridBagConstraints();
         c.anchor = GridBagConstraints.SOUTHWEST;
         c.insets = new Insets(0, 0, 0, 10);
-        Object[][] campos = {{"Data (AAAA-MM-DD)", data}, {"Inicio (HH:MM)", ini}, {"Fim (HH:MM)", fim},
+        Object[][] campos = {{"Data (AAAA-MM-DD)", data}, {"Inicio", ini}, {"Fim", fim},
             {"Capacidade minima", minimo}};
         for (int i = 0; i < campos.length; i++) {
             c.gridx = i;
@@ -722,13 +727,17 @@ public final class ClienteGUI {
         Runnable listar = () -> {
             Map<String, Object> m = req("list_rooms");
             String d = data.getText().trim();
-            if (!d.isEmpty() || !ini.getText().trim().isEmpty() || !fim.getText().trim().isEmpty()) {
+            String hi = hora(ini);
+            String hf = hora(fim);
+            // regra 2.14: filtro nao preenchido e omitido (nunca vai como "")
+            if (!d.isEmpty() || !hi.isEmpty() || !hf.isEmpty()) {
                 conferir("date", d, Protocolo.DATA, false);
-                conferir("start_time", ini.getText().trim(), Protocolo.HORA, false);
-                conferir("end_time", fim.getText().trim(), Protocolo.HORA, false);
-                m.put("date", d);
-                m.put("start_time", ini.getText().trim());
-                m.put("end_time", fim.getText().trim());
+                if (hi.isEmpty() || hf.isEmpty() || d.isEmpty()) {
+                    eventoRede("AVISO", "Para ver a disponibilidade, preencha data, inicio e fim juntos. Enviando mesmo assim.");
+                }
+                if (!d.isEmpty()) m.put("date", d);
+                if (!hi.isEmpty()) m.put("start_time", hi);
+                if (!hf.isEmpty()) m.put("end_time", hf);
             }
             if (!minimo.getText().trim().isEmpty()) {
                 conferir("min_capacity", minimo.getText().trim(), Protocolo.CAPACIDADE, false);
@@ -737,28 +746,36 @@ public final class ClienteGUI {
             carregar(m, r -> {
                 modeloSalas.setRowCount(0);
                 if (!sucesso(r)) return;
+                slotsPorSala.clear();
                 for (Map<?, ?> s : itens(r, "rooms")) {
                     String disp = "-";
                     if (s.containsKey("available")) {
                         disp = "true".equals(s.get("available")) ? "Livre"
-                                : "inactive".equals(s.get("room_status")) ? "Indisponivel" : "Ocupada";
+                                : "Indisponivel"; // ocupada, fora do funcionamento ou sala inativa
                     }
+                    slotsPorSala.put(String.valueOf(s.get("room_id")), lista(s.get("slots")));
                     modeloSalas.addRow(new Object[] {s.get("room_id"), s.get("name"), s.get("capacity"), s.get("location"),
-                        juntar(s.get("resources")), statusSala(s.get("room_status")), disp});
+                        juntar(s.get("resources")), Aulas.resumo(lista(s.get("slots"))), statusSala(s.get("room_status")), disp});
                 }
             });
         };
         buscar.addActionListener(e -> listar.run());
         limpar.addActionListener(e -> {
             data.setText("");
-            ini.setText("");
-            fim.setText("");
+            ini.setSelectedIndex(0);
+            fim.setSelectedIndex(0);
             minimo.setText("");
             listar.run();
         });
 
         tabelaSalas = Visual.tabela(modeloSalas);
-        larguras(tabelaSalas, 50, 200, 110, 180, 160, 120, 100);
+        larguras(tabelaSalas, 40, 170, 115, 150, 130, 270, 90, 100);
+        JButton agenda = Visual.botao("Ver agenda do dia", "secundario");
+        agenda.addActionListener(e -> {
+            String id = selecionado(tabelaSalas, 0);
+            if (id == null) return;
+            verAgendaDoDia(id, String.valueOf(modeloSalas.getValueAt(tabelaSalas.getSelectedRow(), 1)), data.getText().trim());
+        });
         JButton reservar = Visual.botao("Reservar a sala selecionada", "secundario");
         reservar.addActionListener(e -> {
             int l = tabelaSalas.getSelectedRow();
@@ -771,7 +788,7 @@ public final class ClienteGUI {
             for (int i = 0; i < modeloSalas.getRowCount(); i++) {
                 comboSalas.addItem(modeloSalas.getValueAt(i, 0) + " - " + modeloSalas.getValueAt(i, 1) + " ("
                         + modeloSalas.getValueAt(i, 2) + " lugares"
-                        + ("Indisponivel".equals(modeloSalas.getValueAt(i, 5)) ? ", indisponivel" : "") + ")");
+                        + ("Indisponivel".equals(modeloSalas.getValueAt(i, 6)) ? ", indisponivel" : "") + ")");
             }
             comboSalas.setSelectedIndex(l);
             abrir("reservar");
@@ -784,8 +801,8 @@ public final class ClienteGUI {
         barraFiltros.add(filtros, BorderLayout.WEST);
         corpo.add(barraFiltros, BorderLayout.NORTH);
         corpo.add(Visual.rolagem(tabelaSalas), BorderLayout.CENTER);
-        corpo.add(linhaBotoes(reservar), BorderLayout.SOUTH);
-        return pagina("Salas", "Clique em Buscar. Com data, inicio e fim preenchidos, mostra se cada sala esta livre.", null, corpo);
+        corpo.add(linhaBotoes(agenda, reservar), BorderLayout.SOUTH);
+        return pagina("Salas", "Clique em Buscar. Com data, inicio e fim, mostra se cada sala esta livre nesse horario.", null, corpo);
     }
 
     // =====================================================================
@@ -796,11 +813,17 @@ public final class ClienteGUI {
 
     private JComponent telaReservar() {
         JTextField data = Visual.campo(12);
-        JTextField ini = Visual.campo(8);
-        JTextField fim = Visual.campo(8);
+        JComboBox<String> ini = comboHoras(true, false);
+        JComboBox<String> fim = comboHoras(false, false);
         JTextField assunto = Visual.campo(24);
         JTextField part = Visual.campo(6);
         comboSalas.setFont(Visual.FONTE);
+        JLabel horariosSala = Visual.subtitulo(" ");
+        comboSalas.addActionListener(e -> {
+            Object escolhida = comboSalas.getSelectedItem();
+            List<?> slots = escolhida == null ? null : slotsPorSala.get(String.valueOf(escolhida).split(" ")[0]);
+            horariosSala.setText(slots == null ? " " : "Funciona: " + Aulas.resumo(slots));
+        });
         JButton reservar = Visual.botao("Reservar", "primario");
 
         reservar.addActionListener(ev -> {
@@ -808,15 +831,13 @@ public final class ClienteGUI {
             String sala = escolhida == null ? "" : String.valueOf(escolhida).split(" ")[0];
             conferir("room_id", sala, Protocolo.ID, false);
             conferir("date", data.getText().trim(), Protocolo.DATA, false);
-            conferir("start_time", ini.getText().trim(), Protocolo.HORA, false);
-            conferir("end_time", fim.getText().trim(), Protocolo.HORA, false);
             conferir("topic", assunto.getText(), Protocolo.ASSUNTO, false);
             conferir("participants", part.getText().trim(), Protocolo.CAPACIDADE, false);
             Map<String, Object> m = req("create_reservation");
             m.put("room_id", sala);
             m.put("date", data.getText().trim());
-            m.put("start_time", ini.getText().trim());
-            m.put("end_time", fim.getText().trim());
+            m.put("start_time", hora(ini));
+            m.put("end_time", hora(fim));
             m.put("topic", assunto.getText());
             m.put("participants", part.getText().trim());
             enviar(m, r -> {
@@ -830,7 +851,9 @@ public final class ClienteGUI {
         atualizarSalas.addActionListener(ev -> carregar(req("list_rooms"), r -> {
             comboSalas.removeAllItems();
             if (!sucesso(r)) return;
+            slotsPorSala.clear();
             for (Map<?, ?> s : itens(r, "rooms")) {
+                slotsPorSala.put(String.valueOf(s.get("room_id")), lista(s.get("slots")));
                 comboSalas.addItem(s.get("room_id") + " - " + s.get("name") + " (" + s.get("capacity") + " lugares"
                         + ("inactive".equals(s.get("room_status")) ? ", indisponivel" : "") + ")");
             }
@@ -840,13 +863,15 @@ public final class ClienteGUI {
         JPanel form = Visual.formulario(new Object[][] {
             {"Sala", comboSalas, null},
             {"Data", data, "AAAA-MM-DD, por exemplo 2026-12-10"},
-            {"Inicio", ini, "HH:MM (24 h)"},
-            {"Fim", fim, "HH:MM, depois do inicio"},
+            {"Inicio", ini, "Inicio de uma aula da UTFPR"},
+            {"Fim", fim, "Fim de uma aula; ocupa todas as aulas no meio"},
             {"Assunto", assunto, "Sem acentos"},
             {"Participantes", part, "Ate a capacidade da sala"},
         });
         JPanel cartao = Visual.cartao();
         JPanel col = coluna();
+        col.add(esquerda(horariosSala));
+        col.add(Box.createVerticalStrut(10));
         col.add(esquerda(limitar(form, 420)));
         col.add(Box.createVerticalStrut(16));
         col.add(esquerda(botaoFormulario(reservar)));
@@ -979,7 +1004,8 @@ public final class ClienteGUI {
     // ADMINISTRADOR: SALAS (cadastrar, ver com quem reservou, alterar, remover)
     // =====================================================================
 
-    private final DefaultTableModel modeloAdmSalas = modelo("N", "Nome", "Capacidade", "Local", "Recursos", "Status", "Reservas");
+    private final DefaultTableModel modeloAdmSalas = modelo("N", "Nome", "Capacidade", "Local", "Recursos", "Horarios",
+            "Status", "Reservas");
     private final DefaultTableModel modeloAgenda = modelo("N", "Quem reservou", "Data", "Horario", "Participantes", "Assunto");
     private final List<Map<?, ?>> reservasCarregadas = new ArrayList<>();
     private JLabel tituloAgenda;
@@ -987,17 +1013,18 @@ public final class ClienteGUI {
     private JComponent telaAdmSalas() {
         JTable salas = Visual.tabela(modeloAdmSalas);
         salas.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        larguras(salas, 50, 200, 110, 180, 170, 120, 80);
+        larguras(salas, 40, 170, 115, 150, 130, 270, 90, 95);
         JTable agenda = Visual.tabela(modeloAgenda);
         larguras(agenda, 50, 160, 110, 120, 110, 260);
         tituloAgenda = Visual.rotulo("Selecione uma sala para ver quem reservou e quando");
 
         JButton atualizar = Visual.botao("Atualizar", "secundario");
+        JButton agendaDia = Visual.botao("Agenda do dia", "secundario");
         JButton nova = Visual.botao("Nova sala", "primario");
         JButton alterar = Visual.botao("Alterar", "secundario");
         JButton remover = Visual.botao("Remover", "perigo");
 
-        // list_rooms + list_reservations (scope all): salas com status e, para cada uma, as reservas
+        // list_rooms + list_reservations (scope all): salas com horarios e status e, para cada uma, as reservas
         Runnable carregar = () -> {
           String antes = salas.getSelectedRow() < 0 ? null : String.valueOf(modeloAdmSalas.getValueAt(salas.getSelectedRow(), 0));
           carregar(req("list_rooms"), salasResp -> {
@@ -1017,7 +1044,7 @@ public final class ClienteGUI {
                         if (String.valueOf(x.get("room_id")).equals(String.valueOf(s.get("room_id")))) qtd++;
                     }
                     modeloAdmSalas.addRow(new Object[] {s.get("room_id"), s.get("name"), s.get("capacity"), s.get("location"),
-                        juntar(s.get("resources")), statusSala(s.get("room_status")), qtd});
+                        juntar(s.get("resources")), Aulas.resumo(lista(s.get("slots"))), statusSala(s.get("room_status")), qtd});
                 }
                 // mantem selecionada a sala que estava antes de recarregar
                 for (int i = 0; i < modeloAdmSalas.getRowCount(); i++) {
@@ -1032,26 +1059,37 @@ public final class ClienteGUI {
             if (!e.getValueIsAdjusting()) mostrarAgenda(salas);
         });
 
+        agendaDia.addActionListener(e -> {
+            String id = selecionado(salas, 0);
+            if (id == null) return;
+            verAgendaDoDia(id, String.valueOf(modeloAdmSalas.getValueAt(salas.getSelectedRow(), 1)), "");
+        });
+
         nova.addActionListener(e -> {
             JTextField nome = Visual.campo(22);
             JTextField cap = Visual.campo(8);
             JTextField local = Visual.campo(22);
             JTextField rec = Visual.campo(22);
-            JPanel p = Visual.formulario(new Object[][] {
+            GradeHorarios grade = new GradeHorarios();
+            JPanel campos = Visual.formulario(new Object[][] {
                 {"Nome", nome, "Letras, numeros, espaco e hifen (1 a 30), sem acentos"},
                 {"Capacidade", cap, "Numero de lugares (1 a 9999)"},
                 {"Local", local, "Ex.: Bloco B - 1 andar"},
-                {"Recursos", rec, "Separados por virgula, ex.: projetor, tv (em branco = nenhum)"},
+                {"Recursos", rec, "Separados por virgula; em branco = nenhum"},
             });
-            if (!dialogo("Nova sala", p, "Cadastrar")) return;
+            if (!dialogo("Nova sala", formularioSala(campos, grade), "Cadastrar", 820)) return;
             conferir("name", nome.getText(), Protocolo.NOME_SALA, false);
             conferir("capacity", cap.getText().trim(), Protocolo.CAPACIDADE, false);
             conferir("location", local.getText(), Protocolo.LOCAL, false);
+            if (grade.selecionados().isEmpty()) {
+                eventoRede("AVISO", "Nenhum horario marcado: 'slots' e obrigatorio, o servidor deve recusar (400). Enviando mesmo assim.");
+            }
             Map<String, Object> m = req("create_room");
             m.put("name", nome.getText());
             m.put("capacity", cap.getText().trim());
             m.put("location", local.getText());
             m.put("resources", separar(rec.getText()));
+            m.put("slots", new ArrayList<Object>(grade.selecionados()));
             enviar(m, r -> {
                 if (sucesso(r)) {
                     faixaTexto.setText(faixaTexto.getText() + "   -   sala n " + Rede.texto(r, "room_id"));
@@ -1074,7 +1112,7 @@ public final class ClienteGUI {
         remover.addActionListener(e -> {
             String id = selecionado(salas, 0);
             if (id == null) return;
-            if (!confirmar("Remover a sala " + id + "? Ela so pode ser removida se nao tiver reservas futuras.")) return;
+            if (!confirmar("Remover a sala " + id + "? Ela so pode ser removida se nao tiver reservas ativas.")) return;
             Map<String, Object> m = req("delete_room");
             m.put("room_id", id);
             enviar(m, r -> {
@@ -1101,7 +1139,7 @@ public final class ClienteGUI {
         divisao.setDividerSize(6);
 
         return pagina("Gerenciar salas", "Clique em Atualizar para buscar salas e reservas. Selecione uma sala para ver quem reservou.",
-                linhaBotoes(atualizar, nova, alterar, remover), divisao);
+                linhaBotoes(atualizar, agendaDia, nova, alterar, remover), divisao);
     }
 
     private void mostrarAgenda(JTable salas) {
@@ -1119,11 +1157,17 @@ public final class ClienteGUI {
         }
     }
 
+    /**
+     * update_room (v2.9): campo igual ao atual vai como "" (= nao alterar).
+     * resources: sem mudanca -> [] (mantem); apagou todos -> ["0"]; senao a lista nova.
+     * slots: sem mudanca -> [] (mantem); senao a lista nova.
+     */
     private void editarSala(String id, Map<String, Object> atual, Runnable recarregar) {
         String nomeAtual = Rede.texto(atual, "name");
         String capAtual = Rede.texto(atual, "capacity");
         String localAtual = Rede.texto(atual, "location");
-        String recAtual = juntar(atual.get("resources"));
+        List<Object> recAtual = lista(atual.get("resources"));
+        List<Object> slotsAtual = lista(atual.get("slots"));
         String stAtual = Rede.texto(atual, "room_status");
 
         JTextField nome = Visual.campo(22);
@@ -1133,32 +1177,95 @@ public final class ClienteGUI {
         JTextField local = Visual.campo(22);
         local.setText(localAtual);
         JTextField rec = Visual.campo(22);
-        rec.setText("nenhum".equals(recAtual) ? "" : recAtual);
+        rec.setText(recAtual.isEmpty() ? "" : juntar(recAtual));
         JComboBox<String> status = new JComboBox<>(new String[] {"Livre (active)", "Indisponivel (inactive)"});
         status.setSelectedIndex("inactive".equals(stAtual) ? 1 : 0);
-        JPanel p = Visual.formulario(new Object[][] {
+        GradeHorarios grade = new GradeHorarios();
+        grade.marcar(slotsAtual);
+        JPanel campos = Visual.formulario(new Object[][] {
             {"Nome", nome, null},
             {"Capacidade", cap, null},
             {"Local", local, null},
-            {"Recursos", rec, "Separados por virgula (em branco = nenhum)"},
+            {"Recursos", rec, "Separados por virgula; vazio = sem recursos"},
             {"Status", status, "Indisponivel bloqueia novas reservas e mantem as existentes"},
         });
-        if (!dialogo("Alterar sala " + id, p, "Salvar")) return;
+        if (!dialogo("Alterar sala " + id, formularioSala(campos, grade), "Salvar", 820)) return;
 
-        // campo igual ao atual vai como "" (= nao alterar, regra 2.11); resources vai sempre completo
         String novoSt = status.getSelectedIndex() == 1 ? "inactive" : "active";
+        List<Object> novosRec = separar(rec.getText());
+        List<Object> novosSlots = new ArrayList<>(grade.selecionados());
         Map<String, Object> m = req("update_room");
         m.put("room_id", id);
         m.put("name", nome.getText().equals(nomeAtual) ? "" : nome.getText());
         m.put("capacity", cap.getText().trim().equals(capAtual) ? "" : cap.getText().trim());
         m.put("location", local.getText().equals(localAtual) ? "" : local.getText());
-        m.put("resources", separar(rec.getText()));
+        if (novosRec.equals(recAtual)) {
+            m.put("resources", new ArrayList<Object>());           // [] = manter (regra 9.7)
+        } else if (novosRec.isEmpty()) {
+            m.put("resources", new ArrayList<Object>(List.of("0"))); // ["0"] = apagar todos (regra 9.7)
+        } else {
+            m.put("resources", novosRec);
+        }
+        if (novosSlots.isEmpty()) {
+            eventoRede("AVISO", "Nenhum horario marcado: a sala precisa de pelo menos um. Os horarios atuais serao mantidos.");
+        }
+        m.put("slots", novosSlots.equals(slotsAtual) ? new ArrayList<Object>() : novosSlots); // [] = manter (regra 8.7)
         m.put("room_status", novoSt.equals(stAtual) ? "" : novoSt);
         conferir("name", (String) m.get("name"), Protocolo.NOME_SALA, true);
         conferir("capacity", (String) m.get("capacity"), Protocolo.CAPACIDADE, true);
         conferir("location", (String) m.get("location"), Protocolo.LOCAL, true);
         enviar(m, r -> {
             if (sucesso(r)) recarregar.run();
+        });
+    }
+
+    /** Campos da sala a esquerda e a grade de horarios a direita. */
+    private static JPanel formularioSala(JPanel campos, GradeHorarios grade) {
+        JPanel p = new JPanel(new BorderLayout(24, 0));
+        p.setOpaque(false);
+        JPanel esquerdaCampos = new JPanel(new BorderLayout());
+        esquerdaCampos.setOpaque(false);
+        esquerdaCampos.add(campos, BorderLayout.NORTH);
+        JPanel direita = new JPanel(new BorderLayout(0, 6));
+        direita.setOpaque(false);
+        direita.add(Visual.rotulo("Horarios de funcionamento (codigo da UTFPR)"), BorderLayout.NORTH);
+        direita.add(grade, BorderLayout.CENTER);
+        p.add(esquerdaCampos, BorderLayout.CENTER);
+        p.add(direita, BorderLayout.EAST);
+        return p;
+    }
+
+    /** read_room com date (regra 8.5): cada horario da sala nesse dia, livre ou indisponivel e quem reservou. */
+    private void verAgendaDoDia(String id, String nome, String dataSugerida) {
+        JTextField data = Visual.campo(12);
+        data.setText(dataSugerida.isEmpty() ? java.time.LocalDate.now().toString() : dataSugerida);
+        JPanel p = Visual.formulario(new Object[][] {{"Data", data, "AAAA-MM-DD"}});
+        if (!dialogo("Agenda da sala " + id, p, "Ver agenda")) return;
+        String d = data.getText().trim();
+        conferir("date", d, Protocolo.DATA, false);
+        Map<String, Object> m = req("read_room");
+        m.put("room_id", id);
+        m.put("date", d);
+        enviar(m, r -> {
+            if (!sucesso(r)) return;
+            DefaultTableModel modelo = modelo("Horario", "Inicio - Fim", "Situacao", "Quem reservou", "Reserva");
+            for (Map<?, ?> a : itens(r, "agenda")) {
+                modelo.addRow(new Object[] {a.get("slot"), a.get("start_time") + " - " + a.get("end_time"),
+                    "livre".equals(a.get("slot_status")) ? "Livre" : "Indisponivel",
+                    a.get("user") == null ? "" : a.get("user"), a.get("reservation_id") == null ? "" : a.get("reservation_id")});
+            }
+            JPanel conteudo = new JPanel(new BorderLayout(0, 10));
+            conteudo.add(Visual.subtitulo(nome + "  -  " + d + "  -  " + Aulas.resumo(lista(r.get("slots")))), BorderLayout.NORTH);
+            if (modelo.getRowCount() == 0) {
+                conteudo.add(Visual.rotulo("A sala nao funciona nesse dia da semana."), BorderLayout.CENTER);
+            } else {
+                JTable t = Visual.tabela(modelo);
+                larguras(t, 70, 120, 100, 140, 70);
+                JScrollPane rol = Visual.rolagem(t);
+                rol.setPreferredSize(new Dimension(560, Math.min(420, 36 + 29 * modelo.getRowCount())));
+                conteudo.add(rol, BorderLayout.CENTER);
+            }
+            JOptionPane.showMessageDialog(janela, conteudo, "Agenda da sala " + id + " em " + d, JOptionPane.PLAIN_MESSAGE);
         });
     }
 
@@ -1354,8 +1461,12 @@ public final class ClienteGUI {
     }
 
     private boolean dialogo(String titulo, JPanel conteudo, String textoOk) {
+        return dialogo(titulo, conteudo, textoOk, 440);
+    }
+
+    private boolean dialogo(String titulo, JPanel conteudo, String textoOk, int largura) {
         conteudo.setBorder(Visual.margem(6, 4));
-        conteudo.setPreferredSize(new Dimension(440, conteudo.getPreferredSize().height));
+        conteudo.setPreferredSize(new Dimension(largura, conteudo.getPreferredSize().height));
         Object[] opcoes = {textoOk, "Cancelar"};
         int r = JOptionPane.showOptionDialog(janela, conteudo, titulo, JOptionPane.OK_CANCEL_OPTION,
                 JOptionPane.PLAIN_MESSAGE, null, opcoes, opcoes[0]);
@@ -1393,6 +1504,33 @@ public final class ClienteGUI {
             }
         }
         return l;
+    }
+
+    private static List<Object> lista(Object v) {
+        List<Object> l = new ArrayList<>();
+        if (v instanceof List) l.addAll((List<?>) v);
+        return l;
+    }
+
+    /**
+     * Lista de horarios da tabela de aulas (regra 8.3): inicios ("13:00  (T1)") ou fins ("14:40  (fim T2)").
+     * comVazio: primeiro item "(qualquer)", para filtros que podem ficar de fora.
+     */
+    private static JComboBox<String> comboHoras(boolean inicio, boolean comVazio) {
+        JComboBox<String> c = new JComboBox<>();
+        c.setFont(Visual.FONTE);
+        if (comVazio) c.addItem("(qualquer)");
+        for (Aulas.Aula a : Aulas.TABELA) {
+            c.addItem(inicio ? a.inicioTexto() + "  (" + a.codigo + ")" : a.fimTexto() + "  (fim " + a.codigo + ")");
+        }
+        return c;
+    }
+
+    /** "13:00  (T1)" -> "13:00"; "(qualquer)" -> "". */
+    private static String hora(JComboBox<String> c) {
+        Object v = c.getSelectedItem();
+        String t = v == null ? "" : String.valueOf(v);
+        return t.startsWith("(") ? "" : t.substring(0, 5);
     }
 
     private static String juntar(Object lista) {

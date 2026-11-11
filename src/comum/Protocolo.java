@@ -8,17 +8,17 @@ import java.nio.charset.StandardCharsets;
 import java.util.regex.Pattern;
 
 /**
- * Regras de transporte e formato do protocolo v2.6 (compartilhadas por cliente e servidor).
+ * Regras de transporte e formato do protocolo v2.9.1 (compartilhadas por cliente e servidor).
  *
  *  - TCP, UTF-8
  *  - 1 mensagem = 1 objeto JSON em linha unica, terminado por '\n'
- *  - no maximo 8192 bytes por mensagem, ja contando o '\n'
+ *  - requisicao: no maximo 8192 bytes, ja contando o '\n'; resposta: sem limite (regra 1.6, v2.9.1)
  */
 public final class Protocolo {
 
     private Protocolo() { }
 
-    public static final String VERSAO = "2.6";
+    public static final String VERSAO = "2.9.1";
     public static final int TAMANHO_MAXIMO = 8192;
 
     // Regex do Dicionario de Campos
@@ -34,10 +34,13 @@ public final class Protocolo {
     public static final Pattern CAPACIDADE   = Pattern.compile("^[1-9][0-9]{0,3}$");      // capacity, participants, min_capacity
     public static final Pattern LOCAL        = Pattern.compile("^[A-Za-z0-9 ,.-]{1,60}$"); // location
     public static final Pattern ROOM_STATUS  = Pattern.compile("^(active|inactive)$");
-    public static final Pattern DATA         = Pattern.compile("^[0-9]{4}-[0-9]{2}-[0-9]{2}$");
+    public static final Pattern DATA         = Pattern.compile("^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$");
     public static final Pattern HORA         = Pattern.compile("^([01][0-9]|2[0-3]):[0-5][0-9]$");
     public static final Pattern ASSUNTO      = Pattern.compile("^[A-Za-z0-9 ,.-]{1,60}$"); // topic
     public static final Pattern SCOPE        = Pattern.compile("^(mine|all)$");
+    public static final Pattern RECURSO      = Pattern.compile("^[A-Za-z0-9 -]{1,30}$");    // item de resources (v2.9)
+    public static final Pattern SLOT         = Pattern.compile("^[2-7](M[1-6]|T[1-6]|N[1-5])$"); // 2M1 (v2.8)
+    public static final int EMAIL_MAXIMO = 100;                                              // v2.9.1
     public static final Pattern AVAILABLE    = Pattern.compile("^(true|false)$");
     public static final Pattern CREATED_AT = Pattern.compile(
             "^[0-9]{4}-[0-9]{2}-[0-9]{2} ([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]$");
@@ -68,6 +71,15 @@ public final class Protocolo {
      * Um '\r' no final (cliente Windows usando println) e removido.
      */
     public static Linha lerLinha(InputStream in) throws IOException {
+        return lerLinha(in, true);
+    }
+
+    /** Resposta do servidor: sem limite de tamanho (regra 1.6, v2.9.1). */
+    public static Linha lerResposta(InputStream in) throws IOException {
+        return lerLinha(in, false);
+    }
+
+    private static Linha lerLinha(InputStream in, boolean limitar) throws IOException {
         ByteArrayOutputStream buffer = new ByteArrayOutputStream();
         int bytesConteudo = 0;
         boolean excedeu = false;
@@ -80,7 +92,7 @@ public final class Protocolo {
                 break;
             }
             bytesConteudo++;
-            if (bytesConteudo > TAMANHO_MAXIMO - 1) { // -1 por causa do '\n'
+            if (limitar && bytesConteudo > TAMANHO_MAXIMO - 1) { // -1 por causa do '\n'
                 excedeu = true;
             }
             if (!excedeu) {

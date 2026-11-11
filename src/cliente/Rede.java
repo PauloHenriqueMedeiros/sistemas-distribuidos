@@ -126,7 +126,7 @@ public final class Rede {
                 Protocolo.enviar(saida, linha);
                 ouvinte.evento("ENVIADO", linha + (tentativa > 1 ? "   (reenvio)" : ""));
                 ultimaAtividade = System.currentTimeMillis();
-                Protocolo.Linha resp = Protocolo.lerLinha(entrada);
+                Protocolo.Linha resp = Protocolo.lerResposta(entrada); // resposta sem limite (regra 1.6)
                 ultimaAtividade = System.currentTimeMillis();
                 if (resp == null) {
                     fechar();
@@ -136,10 +136,6 @@ public final class Rede {
                         continue;
                     }
                     ouvinte.evento("ERRO", "O servidor encerrou a conexao sem responder, de novo.");
-                    return null;
-                }
-                if (resp.excedeuTamanho) {
-                    ouvinte.evento("ERRO", "A resposta do servidor passou de " + Protocolo.TAMANHO_MAXIMO + " bytes.");
                     return null;
                 }
                 textoResposta = resp.texto;
@@ -242,6 +238,14 @@ public final class Rede {
                 break;
             case "list_rooms":
                 conferirLista(r, "rooms", new String[] {"room_id", "name", "capacity", "location", "room_status"}, avisos);
+                if (r.get("rooms") instanceof List) {
+                    for (Object item : (List<?>) r.get("rooms")) {
+                        if (item instanceof Map && !(((Map<?, ?>) item).get("slots") instanceof List)) {
+                            avisos.add("item de 'rooms' sem o array 'slots' (v2.8)");
+                            break;
+                        }
+                    }
+                }
                 break;
             case "list_reservations":
                 conferirLista(r, "reservations", new String[] {"reservation_id", "room_id", "name", "user", "date",
@@ -252,6 +256,8 @@ public final class Rede {
                     if (texto(r, campo) == null) avisos.add("falta '" + campo + "'");
                 }
                 if (!(r.get("resources") instanceof List)) avisos.add("falta o array 'resources'");
+                if (!(r.get("slots") instanceof List)) avisos.add("falta o array 'slots' (v2.8)");
+                if (r.containsKey("agenda") && !(r.get("agenda") instanceof List)) avisos.add("'agenda' deveria ser array");
                 break;
             default:
                 break;
