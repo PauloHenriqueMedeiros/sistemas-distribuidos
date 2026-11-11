@@ -76,7 +76,7 @@ public final class ClienteGUI {
     private final JPanel faixa = new JPanel(new BorderLayout());
     private final JLabel faixaTexto = new JLabel();
     private final Map<String, JButton> botoesMenu = new LinkedHashMap<>();
-    private final Map<String, Runnable> aoAbrir = new LinkedHashMap<>();
+
     private String telaAtual;
     private boolean ocupado;
 
@@ -197,8 +197,8 @@ public final class ClienteGUI {
         faixa.setVisible(false);
 
         telas.setOpaque(false);
-        registrarTela("login", telaLogin(), null);
-        registrarTela("cadastro", telaCadastro(), null);
+        registrarTela("login", telaLogin());
+        registrarTela("cadastro", telaCadastro());
 
         JPanel centro = new JPanel(new BorderLayout(0, 12));
         centro.setBackground(Visual.FUNDO);
@@ -230,9 +230,8 @@ public final class ClienteGUI {
         return app;
     }
 
-    private void registrarTela(String nome, JComponent tela, Runnable aoMostrar) {
+    private void registrarTela(String nome, JComponent tela) {
         telas.add(tela, nome);
-        if (aoMostrar != null) aoAbrir.put(nome, aoMostrar);
     }
 
     /** O menu muda conforme o estado: sem login, logado ou admin. */
@@ -330,14 +329,15 @@ public final class ClienteGUI {
         }
     }
 
-    /** Mostra a tela e roda a carga dela (ex.: listar salas manda list_rooms). */
+    /**
+     * So troca a tela. Navegar NAO envia nada ao servidor: os dados de cada tela so sao buscados
+     * quando o usuario clica em Atualizar / Buscar (ou depois de uma acao dele, como Salvar).
+     */
     private void abrir(String tela) {
         if (ocupado) return;
         telaAtual = tela;
         cartoesTelas.show(telas, tela);
         marcarMenu(tela);
-        Runnable carga = aoAbrir.get(tela);
-        if (carga != null) carga.run();
     }
 
     // =====================================================================
@@ -414,6 +414,7 @@ public final class ClienteGUI {
         boolean meuToken = token != null && token.equals(tokenUsado);
 
         if (op.equals("login") && status.equals("200") && Rede.texto(r, "token") != null) {
+            limparDados();
             token = Rede.texto(r, "token");
             role = Rede.texto(r, "role");
             eventoRede("INFO", "Token guardado em memoria. Logado como '" + role + "'.");
@@ -446,9 +447,23 @@ public final class ClienteGUI {
         token = null;
         role = null;
         emailLogado = null;
+        limparDados();
         eventoRede("INFO", motivo);
         reconstruirMenu();
         abrir("login");
+    }
+
+    /** Apaga das telas os dados da conta anterior (nada e enviado ao servidor). */
+    private void limparDados() {
+        for (DefaultTableModel m : new DefaultTableModel[] {modeloSalas, modeloMinhas, modeloUsuarios, modeloAdmSalas, modeloAgenda}) {
+            m.setRowCount(0);
+        }
+        reservasCarregadas.clear();
+        comboSalas.removeAllItems();
+        for (JLabel l : new JLabel[] {meuUser, meuEmail, meuPerfil, meuCriado}) {
+            if (l != null) l.setText("-");
+        }
+        if (tituloAgenda != null) tituloAgenda.setText("Selecione uma sala para ver quem reservou e quando");
     }
 
     /** Eventos da rede vao para o painel de mensagens e para o terminal. Pode vir de qualquer thread. */
@@ -640,7 +655,10 @@ public final class ClienteGUI {
         corpo.add(esquerda(cartaoEditar));
         corpo.add(Box.createVerticalStrut(14));
         corpo.add(esquerda(cartaoApagar));
-        return pagina("Meu cadastro", "Seus dados, lidos do servidor com read_user.", null, rolavel(corpo));
+        JButton atualizar = Visual.botao("Atualizar", "secundario");
+        atualizar.addActionListener(ev -> carregarMeuCadastro());
+        return pagina("Meu cadastro", "Clique em Atualizar para ler seus dados do servidor (read_user).",
+                linhaBotoes(atualizar), rolavel(corpo));
     }
 
     private void carregarMeuCadastro() {
@@ -738,7 +756,6 @@ public final class ClienteGUI {
             minimo.setText("");
             listar.run();
         });
-        aoAbrir.put("salas", listar);
 
         tabelaSalas = Visual.tabela(modeloSalas);
         larguras(tabelaSalas, 50, 200, 110, 180, 160, 120, 100);
@@ -749,7 +766,14 @@ public final class ClienteGUI {
                 eventoRede("AVISO", "Selecione uma sala na tabela.");
                 return;
             }
-            salaParaReservar = String.valueOf(modeloSalas.getValueAt(l, 0));
+            // usa as salas que ja estao na tabela: nenhuma requisicao extra
+            comboSalas.removeAllItems();
+            for (int i = 0; i < modeloSalas.getRowCount(); i++) {
+                comboSalas.addItem(modeloSalas.getValueAt(i, 0) + " - " + modeloSalas.getValueAt(i, 1) + " ("
+                        + modeloSalas.getValueAt(i, 2) + " lugares"
+                        + ("Indisponivel".equals(modeloSalas.getValueAt(i, 5)) ? ", indisponivel" : "") + ")");
+            }
+            comboSalas.setSelectedIndex(l);
             abrir("reservar");
         });
 
@@ -761,14 +785,13 @@ public final class ClienteGUI {
         corpo.add(barraFiltros, BorderLayout.NORTH);
         corpo.add(Visual.rolagem(tabelaSalas), BorderLayout.CENTER);
         corpo.add(linhaBotoes(reservar), BorderLayout.SOUTH);
-        return pagina("Salas", "Preencha data, inicio e fim para ver se cada sala esta livre nesse horario.", null, corpo);
+        return pagina("Salas", "Clique em Buscar. Com data, inicio e fim preenchidos, mostra se cada sala esta livre.", null, corpo);
     }
 
     // =====================================================================
     // RESERVAR / MINHAS RESERVAS
     // =====================================================================
 
-    private String salaParaReservar;
     private final JComboBox<String> comboSalas = new JComboBox<>();
 
     private JComponent telaReservar() {
@@ -803,16 +826,15 @@ public final class ClienteGUI {
             });
         });
 
-        aoAbrir.put("reservar", () -> carregar(req("list_rooms"), r -> {
+        JButton atualizarSalas = Visual.botao("Atualizar lista de salas", "secundario");
+        atualizarSalas.addActionListener(ev -> carregar(req("list_rooms"), r -> {
             comboSalas.removeAllItems();
             if (!sucesso(r)) return;
             for (Map<?, ?> s : itens(r, "rooms")) {
-                String item = s.get("room_id") + " - " + s.get("name") + " (" + s.get("capacity") + " lugares"
-                        + ("inactive".equals(s.get("room_status")) ? ", indisponivel" : "") + ")";
-                comboSalas.addItem(item);
-                if (String.valueOf(s.get("room_id")).equals(salaParaReservar)) comboSalas.setSelectedItem(item);
+                comboSalas.addItem(s.get("room_id") + " - " + s.get("name") + " (" + s.get("capacity") + " lugares"
+                        + ("inactive".equals(s.get("room_status")) ? ", indisponivel" : "") + ")");
             }
-            salaParaReservar = null;
+            if (comboSalas.getItemCount() == 0) eventoRede("INFO", "O servidor nao tem nenhuma sala cadastrada.");
         }));
 
         JPanel form = Visual.formulario(new Object[][] {
@@ -831,7 +853,8 @@ public final class ClienteGUI {
         cartao.add(col, BorderLayout.CENTER);
         JPanel corpo = coluna();
         corpo.add(esquerda(cartao));
-        return pagina("Reservar sala", "A lista de salas vem do servidor (list_rooms).", null, rolavel(corpo));
+        return pagina("Reservar sala", "Clique em Atualizar lista de salas para buscar as salas no servidor (list_rooms).",
+                linhaBotoes(atualizarSalas), rolavel(corpo));
     }
 
     private final DefaultTableModel modeloMinhas = modelo("N", "Sala", "Data", "Horario", "Participantes", "Assunto");
@@ -853,8 +876,7 @@ public final class ClienteGUI {
             });
         };
         atualizar.addActionListener(e -> carregar.run());
-        aoAbrir.put("minhas", carregar);
-        return pagina("Minhas reservas", "Reservas feitas com esta conta (list_reservations, scope mine).",
+        return pagina("Minhas reservas", "Clique em Atualizar para buscar suas reservas (list_reservations, scope mine).",
                 linhaBotoes(atualizar), Visual.rolagem(t));
     }
 
@@ -881,7 +903,6 @@ public final class ClienteGUI {
             }
         });
         atualizar.addActionListener(e -> carregar.run());
-        aoAbrir.put("usuarios", carregar);
 
         ver.addActionListener(e -> {
             String alvo = selecionado(t, 0);
@@ -950,7 +971,7 @@ public final class ClienteGUI {
             }
         });
 
-        return pagina("Usuarios", "Todos os cadastros (admin_list_users). Clique duas vezes para ver detalhes.",
+        return pagina("Usuarios", "Clique em Atualizar para buscar os cadastros (admin_list_users). Duplo clique mostra detalhes.",
                 linhaBotoes(atualizar, ver, alterar, remover), Visual.rolagem(t));
     }
 
@@ -1007,7 +1028,6 @@ public final class ClienteGUI {
           });
         };
         atualizar.addActionListener(e -> carregar.run());
-        aoAbrir.put("admsalas", carregar);
         salas.getSelectionModel().addListSelectionListener(e -> {
             if (!e.getValueIsAdjusting()) mostrarAgenda(salas);
         });
@@ -1080,7 +1100,7 @@ public final class ClienteGUI {
         divisao.setOpaque(false);
         divisao.setDividerSize(6);
 
-        return pagina("Gerenciar salas", "Salas com status e, para a sala selecionada, quem reservou e quando.",
+        return pagina("Gerenciar salas", "Clique em Atualizar para buscar salas e reservas. Selecione uma sala para ver quem reservou.",
                 linhaBotoes(atualizar, nova, alterar, remover), divisao);
     }
 
@@ -1174,12 +1194,12 @@ public final class ClienteGUI {
 
     /** As telas que precisam de login sao criadas uma vez so, na primeira montagem. */
     {
-        registrarTela("meu", telaMeuCadastro(), this::carregarMeuCadastro);
-        registrarTela("salas", telaSalas(), null);
-        registrarTela("reservar", telaReservar(), null);
-        registrarTela("minhas", telaMinhas(), null);
-        registrarTela("usuarios", telaUsuarios(), null);
-        registrarTela("admsalas", telaAdmSalas(), null);
+        registrarTela("meu", telaMeuCadastro());
+        registrarTela("salas", telaSalas());
+        registrarTela("reservar", telaReservar());
+        registrarTela("minhas", telaMinhas());
+        registrarTela("usuarios", telaUsuarios());
+        registrarTela("admsalas", telaAdmSalas());
     }
 
     /** Pagina padrao: titulo, subtitulo, barra de botoes (opcional) e conteudo que ocupa o resto. */

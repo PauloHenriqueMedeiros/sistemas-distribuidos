@@ -56,6 +56,10 @@ vermelho e o motivo de cada decisão em roxo.
 - O resultado de cada ação aparece numa faixa no topo: verde para sucesso, vermelha para erro, com o status e a message
   exatos do servidor.
 - O cliente avisa no painel quando um campo está fora do formato, mas envia mesmo assim, para o servidor mostrar o erro dele.
+- **Navegar pelo menu não envia nada ao servidor.** Cada tela só busca dados quando você clica em **Atualizar**
+  (ou **Buscar**, na tela Salas, e **Atualizar lista de salas**, em Reservar sala). Depois de uma ação sua, como
+  Salvar, Nova sala ou Remover, a lista daquela tela é recarregada para mostrar o resultado.
+- Ao sair da conta, as telas são limpas, para o próximo usuário não ver os dados do anterior.
 - As requisições rodam fora da thread da tela, então a janela nunca congela esperando o servidor.
 
 ## Roteiro para a avaliação (EP-2)
@@ -65,11 +69,11 @@ de usuário comum, entre com ela, reserve a sala (Reservar sala) e saia. Assim h
 
 | Item | No cliente (logado como admin) | Resposta esperada |
 |---|---|---|
-| a / i | Usuarios | lista com todos os usuários |
+| a / i | Usuarios → Atualizar | lista com todos os usuários |
 | b / j | Usuarios → selecione o usuário comum → Alterar | 200 "Dados atualizados com sucesso" |
 | c / k | Usuarios → selecione o usuário comum → Remover | 200 "Usuario removido com sucesso" (as reservas dele também somem) |
 | d / l | Gerenciar salas → Nova sala | 201 "Sala cadastrada com sucesso" + número da sala |
-| e / m | Gerenciar salas → selecione a sala | capacidade, status (Livre/Indisponivel) e, embaixo, quem reservou, data e horário |
+| e / m | Gerenciar salas → Atualizar → selecione a sala | capacidade, status (Livre/Indisponivel) e, embaixo, quem reservou, data e horário |
 | f / n | Gerenciar salas → Alterar (nome, capacidade, local, recursos, status) | 200 "Sala atualizada com sucesso" |
 | g / o | Gerenciar salas → sala sem reservas futuras → Remover | 200 "Sala removida com sucesso"; ela some da tabela |
 | h | casos de erro abaixo | mensagens de erro exatas do protocolo |
